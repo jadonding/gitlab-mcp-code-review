@@ -23,6 +23,7 @@ class GitLabContext:
     host: str
     token: str
     api_version: str = "v4"
+    protocol: str = "https"
 
 def make_gitlab_api_request(ctx: Context, endpoint: str, method: str = "GET", data: Optional[Dict[str, Any]] = None) -> Any:
     """Make a REST API request to GitLab and handle the response"""
@@ -32,7 +33,10 @@ def make_gitlab_api_request(ctx: Context, endpoint: str, method: str = "GET", da
         logger.error("GitLab token not set in context")
         raise ValueError("GitLab token not set. Please set GITLAB_TOKEN in your environment.")
     
-    url = f"https://{gitlab_ctx.host}/api/{gitlab_ctx.api_version}/{endpoint}"
+    # Support configurable protocol (http or https). Keep backwards compatibility
+    # by falling back to https if protocol is not provided on the context.
+    protocol = getattr(gitlab_ctx, "protocol", os.getenv("GITLAB_PROTOCOL", "https"))
+    url = f"{protocol}://{gitlab_ctx.host}/api/{gitlab_ctx.api_version}/{endpoint}"
     headers = {
         'Accept': 'application/json',
         'User-Agent': 'GitLabMCPCodeReview/1.0',
@@ -73,6 +77,7 @@ async def gitlab_lifespan(server: FastMCP) -> AsyncIterator[GitLabContext]:
     """Manage GitLab connection details"""
     host = os.getenv("GITLAB_HOST", "gitlab.com")
     token = os.getenv("GITLAB_TOKEN", "")
+    protocol = os.getenv("GITLAB_PROTOCOL", "https").lower()
     
     if not token:
         logger.error("Missing required environment variable: GITLAB_TOKEN")
@@ -81,7 +86,7 @@ async def gitlab_lifespan(server: FastMCP) -> AsyncIterator[GitLabContext]:
             "Please set this in your environment or .env file."
         )
     
-    ctx = GitLabContext(host=host, token=token)
+    ctx = GitLabContext(host=host, token=token, protocol=protocol)
     try:
         yield ctx
     finally:
@@ -90,7 +95,6 @@ async def gitlab_lifespan(server: FastMCP) -> AsyncIterator[GitLabContext]:
 # Create MCP server
 mcp = FastMCP(
     "GitLab MCP for Code Review",
-    description="MCP server for reviewing GitLab code changes",
     lifespan=gitlab_lifespan,
     dependencies=["python-dotenv", "requests"]
 )
